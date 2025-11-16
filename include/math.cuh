@@ -1,0 +1,41 @@
+/****************************************************************************
+*    
+*    HIS Simulator in FLAME GPU
+*
+*    Copyright (C) 2025 Samuele Casadei
+*
+*    This program is free software: you can redistribute it and/or modify
+*    it under the terms of the GNU General Public License as published by
+*    the Free Software Foundation, either version 3 of the License, or
+*    (at your option) any later version.
+*
+*    This program is distributed in the hope that it will be useful,
+*    but WITHOUT ANY WARRANTY; without even the implied warranty of
+*    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+*    GNU General Public License for more details.
+*
+*    You should have received a copy of the GNU General Public License
+*    along with this program.  If not, see <https://www.gnu.org/licenses/>
+*
+****************************************************************************/
+
+#pragma once
+
+#define LAMBDA 0.1
+#define TIME_FACTOR 0.8
+#define PI 3.14159265358
+
+/* Generates either true or false randomly. */
+__host__ __device__ bool randbool();
+
+/* Generates a random floating point value between 0 and 1. */
+__host__ __device__ double randdouble();
+
+/* Generates a byte of random bits. */
+__host__ __device__ unsigned char randbyte();
+
+/* Computes the Langevin equation with the given parameters. */
+__host__ __device__ double langevin(double velocity, double force, double mass);
+
+/* Computes the Hamming distance (the number of different bits) of the bytes passed as parameters. */
+__host__ __device__ int hammingdist(unsigned char byte1, unsigned char byte2);
