@@ -45,6 +45,7 @@ SET(ALL_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/math.cu
     ${CMAKE_CURRENT_SOURCE_DIR}/src/memory.cu
     ${CMAKE_CURRENT_SOURCE_DIR}/src/entity.cu
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/simulation.cu
 )
 
 # Add the executable and set required flags for the target

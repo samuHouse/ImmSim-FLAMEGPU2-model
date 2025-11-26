@@ -6,16 +6,10 @@
 #include "matplotlibcpp.h"
 #include "math.cuh"
 #include "entity.cuh"
+#include "simulation.cuh"
 #include "flamegpu/flamegpu.h"
 // necessary in order to use plot functions.
 namespace plt = matplotlibcpp;
-
-#define DEFAULT_WIDTH 500.0f
-#define DEFAULT_HEIGHT 500.0f
-#define DEFAULT_B_CELL_NUM 100
-#define DEFAULT_T_CELL_NUM 50
-#define DEFAULT_ANTIGEN_NUM 200
-#define DEFAULT_STEPS 5000
 
 FLAMEGPU_AGENT_FUNCTION(antigen_send_pos, flamegpu::MessageNone, flamegpu::MessageSpatial2D) {
     // Get the agent's position
@@ -99,8 +93,9 @@ FLAMEGPU_AGENT_FUNCTION(b_cell_binding, flamegpu::MessageSpatial2D, flamegpu::Me
     CellState state = static_cast<CellState>(FLAMEGPU->getVariable<int>("cell_state"));
     if (!has_interacted && state == CS_INTERNALIZED) {
         const float RADIUS = FLAMEGPU->message_in.radius();
-	    const float x = FLAMEGPU->getVariable<float>("x");
-	    const float y = FLAMEGPU->getVariable<float>("y");
+	const float x = FLAMEGPU->getVariable<float>("x");
+	const float y = FLAMEGPU->getVariable<float>("y");
+	const flamegpu::AgentRandom &rng = FLAMEGPU->random;
         for (auto entity : FLAMEGPU->message_in(x, y)) {
             // if message is in range and not out of bounds
             const float x2 = entity.getVariable<float>("x");
@@ -121,7 +116,7 @@ FLAMEGPU_AGENT_FUNCTION(b_cell_binding, flamegpu::MessageSpatial2D, flamegpu::Me
 			receptor[i] = FLAMEGPU->getVariable<unsigned char, RECEPTOR_SIZE>("receptor", i);
 
 		    }
-                    if (can_entities_bind(receptor, ag_receptor)) {
+                    if (can_entities_bind(receptor, ag_receptor, rng)) {
                         FLAMEGPU->setVariable<int>("cell_state", CS_ACTIVE);
                         FLAMEGPU->setVariable<uint8_t>("has_interacted", true);
                         FLAMEGPU->message_out.setVariable<float>("x", FLAMEGPU->getVariable<float>("x"));
@@ -234,149 +229,96 @@ FLAMEGPU_AGENT_FUNCTION(send_position, flamegpu::MessageNone, flamegpu::MessageS
     return flamegpu::ALIVE;
 }
 
-FLAMEGPU_AGENT_FUNCTION(spawn_antibodies, flamegpu::MessageSpatial2D, flamegpu::MessageNone) {
+FLAMEGPU_AGENT_FUNCTION(spawn_antibodies, flamegpu::MessageNone, flamegpu::MessageNone) {
     const CellState state = static_cast<CellState>(FLAMEGPU->getVariable<int>("cell_state"));
     const uint8_t has_interacted = FLAMEGPU->getVariable<uint8_t>("has_interacted");
-    const int range = 5; // Define a range for spawning antibodies around the B-cell
+    const float range = 5,
+	min_range = 0.5; // Define a range for spawning antibodies around the B-cell
     int spawned_count = 0;
     if (state == CS_STIMULATED && !has_interacted) {
-        const float RADIUS = FLAMEGPU->message_in.radius();
         const float x = FLAMEGPU->getVariable<float>("x");
         const float y = FLAMEGPU->getVariable<float>("y");
-        for (int dx = -range; dx <= range && spawned_count < AB_CREATED_PER_CELL; dx++) {
-            for (int dy = -range; dy <= range && spawned_count < AB_CREATED_PER_CELL; dy++) {
-                if (dx == 0 && dy == 0) continue; // Skip the B-cell's own position
-                for (auto msg : FLAMEGPU->message_in(x, y)) {
-                    // if message is in range and not out of bounds
-                    const float x2 = msg.getVariable<float>("x");
-                    const float y2 = msg.getVariable<float>("y");
-                    if ( 0 <= x2 && x2 < FLAMEGPU->environment.getProperty<float>("width") &&
-                        0 <= y2 && y2 < FLAMEGPU->environment.getProperty<float>("height")
-                    )
-                    {
-                        // check if antigen is in range for interaction.
-                        float x21 = x2 - x;
-                        float y21 = y2 - y;
-                        const float separation = sqrt( x21*x21 + y21*y21 );
-                        if (separation < RADIUS && separation > 0.0f) {
-                            if (x2 == (x + dx) && y2 == (y + dy)) {
-                                break; // Position occupied, skip to next
-                            }
-                        }
-                    }
-                }
-                // If position is unoccupied, spawn antibody
-		FLAMEGPU->agent_out.setVariable<float>("x", FLAMEGPU->getVariable<float>("x") + dx);
-		FLAMEGPU->agent_out.setVariable<float>("y", FLAMEGPU->getVariable<float>("y") + dy);
-                spawned_count++;
-            }
-        }
+	const flamegpu::AgentRandom &rng = FLAMEGPU->random;
+	
+	for (int i=0; i < AB_CREATED_PER_CELL; i++) {
+	    // Random offset from the parent B-cell.
+	    float dx = FLAMEGPU->random.uniform<float>(min_range, range);
+	    float dy = FLAMEGPU->random.uniform<float>(min_range, range);
+	    // Randomly decide if the offset is negative.
+	    dx *= (FLAMEGPU->random.uniform<float>() < 0.5f) ? -1 : 1;
+	    dy *= (FLAMEGPU->random.uniform<float>() < 0.5f) ? -1 : 1;
+	    // Antibody spawns.
+	    FLAMEGPU->agent_out.setVariable<float>("x", FLAMEGPU->getVariable<float>("x") + dx);
+	    FLAMEGPU->agent_out.setVariable<float>("y", FLAMEGPU->getVariable<float>("y") + dy);
+
+	}
         FLAMEGPU->setVariable<uint8_t>("has_interacted", true);
         FLAMEGPU->setVariable<int>("cell_state", CS_INTERNALIZED);
+
+	// Mutate the receptor.
+	unsigned char receptor[RECEPTOR_SIZE];
+	for (int i=0; i<RECEPTOR_SIZE; i++) receptor[i] = FLAMEGPU->getVariable<unsigned char, RECEPTOR_SIZE>("receptor", i);
+	hypermutation(receptor, rng);
+	for (int i=0; i<RECEPTOR_SIZE; i++) FLAMEGPU->setVariable<unsigned char, RECEPTOR_SIZE>("receptor", i, receptor[i]);
     }
     return flamegpu::ALIVE;
 }
 
-FLAMEGPU_AGENT_FUNCTION(diffuse_entities, flamegpu::MessageSpatial2D, flamegpu::MessageNone) {
-    const float width = FLAMEGPU->environment.getProperty<float>("width");
+FLAMEGPU_AGENT_FUNCTION(diffuse_entities, flamegpu::MessageNone, flamegpu::MessageNone) {
+    // --- Environment ---
+    const float width  = FLAMEGPU->environment.getProperty<float>("width");
     const float height = FLAMEGPU->environment.getProperty<float>("height");
-    const float x = FLAMEGPU->getVariable<float>("x");
-    const float y = FLAMEGPU->getVariable<float>("y");
+
+    // --- Current agent state ---
+    float x = FLAMEGPU->getVariable<float>("x");
+    float y = FLAMEGPU->getVariable<float>("y");
     float vx = FLAMEGPU->getVariable<float>("vx");
     float vy = FLAMEGPU->getVariable<float>("vy");
-    const double mass = FLAMEGPU->getVariable<float>("mass");
+    const float mass = FLAMEGPU->getVariable<float>("mass");
+    const float EPS = 1e-3f;
 
-    // Box-Muller
-    double r1 = randdouble();
-    double r2 = randdouble();
-    double random_x = sqrt(-2 * log(r1)) * cos(2 * PI * r2);
-    double random_y = sqrt(-2 * log(r1)) * sin(2 * PI * r2);
+    // --- Langevin drift using FLAMEGPU RNG ---
+    double rx = FLAMEGPU->random.normal<double>(); // mean 0, std 1
+    double ry = FLAMEGPU->random.normal<double>();
 
-    // Langevin equation
-    vx += langevin(vx, random_x, mass);
-    vy += langevin(vy, random_y, mass);
+    vx += langevin(vx, rx, mass);
+    vy += langevin(vy, ry, mass);
 
-    // Update position, checking boundaries.
-    double new_x = floor((x + vx * TIME_FACTOR) > width ? width : (x + vx * TIME_FACTOR < 0) ? 0 : x + vx * TIME_FACTOR);
-    double new_y = floor((y + vy * TIME_FACTOR) > height ? height : (y + vy * TIME_FACTOR < 0) ? 0 : y + vy * TIME_FACTOR);
+    // Proposed new position.
+    float new_x = x + vx * TIME_FACTOR;
+    float new_y = y + vy * TIME_FACTOR;
 
-    uint8_t occupied = false;
-    const float RADIUS = FLAMEGPU->message_in.radius();
-    // Iterate over all received position messages
-    for (auto msg : FLAMEGPU->message_in(x, y)) {
-        // if message is in range and not out of bounds
-        const float x2 = msg.getVariable<float>("x");
-        const float y2 = msg.getVariable<float>("y");
-        if ( 0 <= x2 && x2 < FLAMEGPU->environment.getProperty<float>("width") &&
-            0 <= y2 && y2 < FLAMEGPU->environment.getProperty<float>("height")
-        )
-        {
-            // check if antigen is in range for interaction.
-            float x21 = x2 - x;
-            float y21 = y2 - y;
-            const float separation = sqrt( x21*x21 + y21*y21 );
-            if (separation < RADIUS && separation > 0.0f) {
-                occupied = x2 == new_x && y2 == new_y;
-            }
-        }
+    // Reflection on bounds.
+    if (new_x < 0.0f) {
+    	new_x = -new_x;
+    	vx = -vx;
+    } else if (new_x > width) {
+    	new_x = 2*width - new_x;
+    	vx = -vx;
     }
-    if (!occupied) {
-        FLAMEGPU->setVariable<float>("x", new_x);
-        FLAMEGPU->setVariable<float>("y", new_y);
-    } else {
-        // Search for an unoccupied position adjacent to the new position
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dy = -1; dy <= 1; dy++) {
-                if (dx == 0 && dy == 0) continue; // Skip the original position
-                float adj_x = new_x + dx;
-                float adj_y = new_y + dy;
-                // Check bounds
-                if (adj_x >= 0 && adj_x < width && adj_y >= 0 && adj_y < height) {
-                    uint8_t adj_occupied = false;
-                    // Re-iterate over messages to check if adjacent position is occupied.
-                    for (auto msg : FLAMEGPU->message_in(x, y)) {
-                        // if message is in range and not out of bounds
-                        const float x2 = msg.getVariable<float>("x");
-                        const float y2 = msg.getVariable<float>("y");
-                        if ( 0 <= x2 && x2 < FLAMEGPU->environment.getProperty<float>("width") &&
-                            0 <= y2 && y2 < FLAMEGPU->environment.getProperty<float>("height")
-                        )
-                        {
-                            // check if antigen is in range for interaction.
-                            float x21 = x2 - x;
-                            float y21 = y2 - y;
-                            const float separation = sqrt( x21*x21 + y21*y21 );
-                            if (separation < RADIUS && separation > 0.0f) {
-                                if (x2 == adj_x && y2 == adj_y) {
-                                    // Whenever it is, skip to next adjacent position.
-                                    adj_occupied = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    // If not occupied, move agent there.
-                    if (!adj_occupied) {
-                        FLAMEGPU->setVariable<float>("x", adj_x);
-                        FLAMEGPU->setVariable<float>("y", adj_y);
-                        // If a valid position is found, exit both loops.
-                        occupied = false;
-                        break;
-                    }
-                }
-            }
-            if (!occupied) break;
-        }
+
+    if (new_y < 0.0f) {
+    	new_y = -new_y;
+    	vy = -vy;
+    } else if (new_y > height) {
+    	new_y = 2*height - new_y;
+   	vy = -vy;
     }
-    // Update velocity variables.
+
+    // Update positions.
+    FLAMEGPU->setVariable<float>("x", new_x);
+    FLAMEGPU->setVariable<float>("y", new_y);
+
+    // Update velocities.
     FLAMEGPU->setVariable<float>("vx", vx);
     FLAMEGPU->setVariable<float>("vy", vy);
+
     // Reset interaction flag.
     EntityType type = static_cast<EntityType>(FLAMEGPU->getVariable<int>("type"));
-    if (type != AG_MOLECOLE){
+    if (type != AG_MOLECOLE) {
         FLAMEGPU->setVariable<uint8_t>("has_interacted", false);
     }
-    // If no valid position is found, the agent remains in its current position.
+
     return flamegpu::ALIVE;
 }
 
@@ -387,17 +329,27 @@ FLAMEGPU_INIT_FUNCTION(init_agents) {
     const unsigned int t_cell_num = FLAMEGPU->environment.getProperty<unsigned int>("T_cell_num");
     const unsigned int antigen_num = FLAMEGPU->environment.getProperty<unsigned int>("antigen_num");
     const unsigned int total_agents = b_cell_num + t_cell_num + antigen_num;
-    // create rng
-    std::random_device rd; // obtain a random number from hardware
-    std::mt19937 gen(rd()); // seed the generator
-    std::uniform_int_distribution<> distr(0, MAX_ENTITYTYPE - 1); // define the range, excluding antibodies
+
+    // create rng to shuffle the types array..
+    std::random_device rd;
+    std::mt19937 gen(rd());
+
+    // shuffle types array to populate the grid.
+    std::vector<EntityType> types;
+    types.reserve(total_agents);
+
+    types.insert(types.end(), b_cell_num, B_CELL);
+    types.insert(types.end(), t_cell_num, T_CELL);
+    types.insert(types.end(), antigen_num, AG_MOLECOLE);
+
+    std::shuffle(types.begin(), types.end(), gen);
 
     auto b_cell = FLAMEGPU->agent("B-Lymphocyte");
     auto t_cell = FLAMEGPU->agent("T-Lymphocyte");
     auto antigen = FLAMEGPU->agent("Antigen");
     auto antibody = FLAMEGPU->agent("Antibody");
 
-    unsigned int counter = 0, b = 0, t = 0, ag = 0;
+    unsigned int counter = 0;
 
     // How many agents in the grid
     unsigned int cols = static_cast<unsigned int>(std::ceil(std::sqrt(total_agents)));
@@ -406,74 +358,72 @@ FLAMEGPU_INIT_FUNCTION(init_agents) {
     float cell_width = static_cast<float>(width) / cols;
     float cell_height = static_cast<float>(height) / rows;
 
+    // RNG per posizionamento
+    std::uniform_real_distribution<float> offset(0.0f, 1.0f);
+
     for (unsigned int i = 0; i < rows && counter < total_agents; ++i) {
-        for (unsigned int j = 0; j < cols && counter < total_agents; ++j, counter++) {
-            unsigned int type;
-            uint8_t full = true;
-            while(full && !(ag >= antigen_num || b >= b_cell_num || t >= t_cell_num)) {
-                // Choose a random type.
-                type = distr(gen);
-                switch (static_cast<EntityType>(type)) {
-                    case B_CELL:
-                        full = b >= b_cell_num;
-                        break;
-                    case T_CELL:
-                        full = t >= t_cell_num;
-                        break;
-                    case AG_MOLECOLE:
-                        full = ag >= antigen_num;
-                        break;
-                    default:
-                        break;
-                }
-            }
-            switch(static_cast<EntityType>(type)) {
+        for (unsigned int j = 0; j < cols && counter < total_agents; ++j) {
+            // ---------------------
+            // NUOVO POSIZIONAMENTO:
+            // coordinate reali su griglia 500x500 (o quelle del tuo ambiente)
+            // ---------------------
+            float x = j * cell_width  + offset(gen) * cell_width;
+            float y = i * cell_height + offset(gen) * cell_height;
+
+	    EntityType type = types[counter++];
+            switch(type) {
                 case B_CELL: {
-		    auto instance = b_cell.newAgent();
-		    b++;
+                    auto instance = b_cell.newAgent();
+                    //b++;
                     instance.setVariable<int>("cell_state", CS_INTERNALIZED);
                     instance.setVariable<int>("type", B_CELL);
                     instance.setVariable<float>("mass", 0.2f);
                     instance.setVariable<uint8_t>("has_interacted", false);
-                    for (unsigned int k = 0; k < RECEPTOR_SIZE; ++k) {
+                    for (unsigned int k = 0; k < RECEPTOR_SIZE; ++k)
                         instance.setVariable<unsigned char, RECEPTOR_SIZE>("receptor", k, randbyte());
-                    }
-		    instance.setVariable<float>("x", j);
-            	    instance.setVariable<float>("y", i);
-            	    instance.setVariable<float>("vx", 0.0f);
-            	    instance.setVariable<float>("vy", 0.0f);
+
+                    // ---------------------------
+                    // NUOVE COORDINATE
+                    // ---------------------------
+                    instance.setVariable<float>("x", x);
+                    instance.setVariable<float>("y", y);
+                    instance.setVariable<float>("vx", 0.0f);
+                    instance.setVariable<float>("vy", 0.0f);
                     break;
                 }
+
                 case T_CELL: {
-		    auto instance = t_cell.newAgent();
-		    t++;
+                    auto instance = t_cell.newAgent();
+                    //t++;
                     instance.setVariable<int>("cell_state", CS_ACTIVE);
                     instance.setVariable<int>("type", T_CELL);
                     instance.setVariable<float>("mass", 0.2f);
                     instance.setVariable<uint8_t>("has_interacted", false);
-		    instance.setVariable<float>("x", j);
-            	    instance.setVariable<float>("y", i);
-            	    instance.setVariable<float>("vx", 0.0f);
-            	    instance.setVariable<float>("vy", 0.0f);
+
+                    instance.setVariable<float>("x", x);
+                    instance.setVariable<float>("y", y);
+                    instance.setVariable<float>("vx", 0.0f);
+                    instance.setVariable<float>("vy", 0.0f);
                     break;
                 }
+
                 case AG_MOLECOLE: {
-		    auto instance = antigen.newAgent();
-		    ag++;
+                    auto instance = antigen.newAgent();
+                    //ag++;
                     instance.setVariable<int>("cell_state", CS_ACTIVE);
                     instance.setVariable<int>("type", AG_MOLECOLE);
                     instance.setVariable<float>("mass", 0.1f);
-                    for (unsigned int k = 0; k < RECEPTOR_SIZE; ++k) {
+                    for (unsigned int k = 0; k < RECEPTOR_SIZE; ++k)
                         instance.setVariable<unsigned char, RECEPTOR_SIZE>("epitope", k, randbyte());
-                    }
-		    instance.setVariable<float>("x", j);
-            	    instance.setVariable<float>("y", i);
-            	    instance.setVariable<float>("vx", 0.0f);
-            	    instance.setVariable<float>("vy", 0.0f);
+
+                    instance.setVariable<float>("x", x);
+                    instance.setVariable<float>("y", y);
+                    instance.setVariable<float>("vx", 0.0f);
+                    instance.setVariable<float>("vy", 0.0f);
                     break;
                 }
-                default:
-                    break;
+
+                default: break;
             }
         }
     }
@@ -492,10 +442,10 @@ FLAMEGPU_HOST_FUNCTION(plot_agents) {
         std::vector<float> x_ab, y_ab;
 
         // Get agents' positions through population data.
-        auto b_cells = std::move(FLAMEGPU->agent("B-Lymphocyte").getPopulationData());
-        auto t_cells = std::move(FLAMEGPU->agent("T-Lymphocyte").getPopulationData());
-        auto antigens = std::move(FLAMEGPU->agent("Antigen").getPopulationData());
-        auto antibodies = std::move(FLAMEGPU->agent("Antibody").getPopulationData());
+        flamegpu::DeviceAgentVector b_cells = FLAMEGPU->agent("B-Lymphocyte").getPopulationData();
+	flamegpu::DeviceAgentVector t_cells = FLAMEGPU->agent("T-Lymphocyte").getPopulationData();
+	flamegpu::DeviceAgentVector antigens = FLAMEGPU->agent("Antigen").getPopulationData();
+	flamegpu::DeviceAgentVector antibodies  = FLAMEGPU->agent("Antibody").getPopulationData();
 
         // Collect positions.
         for (auto b : b_cells) {
@@ -529,41 +479,76 @@ FLAMEGPU_HOST_FUNCTION(plot_agents) {
     }
 }
 
-int main(int argc, char** argv) {
-    float width, height;
-    unsigned int b_cell_num, t_cell_num, antigen_num, steps;
-    if (argc == 7) {
-        width = std::stof(argv[1]);
-        height = std::stof(argv[2]);
-        b_cell_num = std::stoi(argv[3]);
-        t_cell_num = std::stoi(argv[4]);
-        antigen_num = std::stoi(argv[5]);
-        steps = std::stoi(argv[6]);
-    } else {
-        width = DEFAULT_WIDTH;
-        height = DEFAULT_HEIGHT;
-        b_cell_num = DEFAULT_B_CELL_NUM;
-        t_cell_num = DEFAULT_T_CELL_NUM;
-        antigen_num = DEFAULT_ANTIGEN_NUM;
-        steps = DEFAULT_STEPS;
+FLAMEGPU_HOST_FUNCTION(reinsert_antigens) {
+    unsigned int total_steps = FLAMEGPU->environment.getProperty<unsigned int>("total_steps"),
+    step = FLAMEGPU->getStepCounter();
+    if (step == (total_steps / 2)) {
+    	// Gather environment variables.
+    	const unsigned int width  = (unsigned int)FLAMEGPU->environment.getProperty<float>("width");
+    	const unsigned int height = (unsigned int)FLAMEGPU->environment.getProperty<float>("height");
+    	const unsigned int antigen_num = FLAMEGPU->environment.getProperty<unsigned int>("antigen_num");
+
+    	// Fetch agent population in order to mark occupied cells.
+    	unsigned int bcells = FLAMEGPU->agent("B-Lymphocyte").count();
+    	unsigned int tcells = FLAMEGPU->agent("T-Lymphocyte").count();
+    	unsigned int abs = FLAMEGPU->agent("Antibody").count();
+    	unsigned int ags = FLAMEGPU->agent("Antigen").count();
+
+    	// Also counting reinserted antigens.
+    	const unsigned int total_agents = bcells + tcells + ags + abs + antigen_num;
+
+    	unsigned int cols = static_cast<unsigned int>(std::ceil(std::sqrt(total_agents)));
+    	unsigned int rows = static_cast<unsigned int>(std::ceil((float)total_agents / cols));
+    	float cell_width = (float)width / cols,
+    	cell_height = (float)height / rows;
+
+    	// Gather antigen proxy, to create more.
+    	auto antigen = FLAMEGPU->agent("Antigen");
+
+    	// Shuffle free_positions.
+    	std::random_device rd;
+    	std::mt19937 gen(rd());
+	std::uniform_real_distribution<float> distX(0.0f, width);
+	std::uniform_real_distribution<float> distY(0.0f, height);
+
+	for (unsigned int k = 0; k < antigen_num; ++k) {
+    	    float x, y;
+            // posizione completamente casuale
+            x = distX(gen);
+            y = distY(gen);
+
+    	    // spawn dell’agente
+    	    auto instance = antigen.newAgent();
+    	    instance.setVariable<float>("x", x);
+            instance.setVariable<float>("y", y);
+            instance.setVariable<float>("vx", 0.0f);
+            instance.setVariable<float>("vy", 0.0f);
+            instance.setVariable<int>("cell_state", CS_ACTIVE);
+    	    instance.setVariable<int>("type", AG_MOLECOLE);
+    	    instance.setVariable<float>("mass", 0.1f);
+	}
     }
+}
+
+int main(int argc, char** argv) {
+    // Parse arguments.
+    SimulationParams params = parseArguments(argc, argv);
 
     // Model creation
     flamegpu::ModelDescription model("ImmSimModel");
 
     // Environment.
     flamegpu::EnvironmentDescription env = model.Environment();
+    // Step number.
+    env.newProperty<unsigned int>("total_steps", params.steps);
     // Grid dimensions.
-    env.newProperty<float>("width", width);
-    env.newProperty<float>("height", height);
+    env.newProperty<float>("width", params.width);
+    env.newProperty<float>("height", params.height);
     // Cell/Molecule counts.
-    env.newProperty<unsigned int>("B_cell_num", b_cell_num);
-    env.newProperty<unsigned int>("T_cell_num", t_cell_num);
-    env.newProperty<unsigned int>("antigen_num", antigen_num);
-    // Constant radius to determine if two agents can interact.
+    env.newProperty<unsigned int>("B_cell_num", params.b_cell_num);
+    env.newProperty<unsigned int>("T_cell_num", params.t_cell_num);
+    env.newProperty<unsigned int>("antigen_num", params.antigen_num);
     env.newProperty<float>("interaction_radius", PROXIMITY_DIST);
-    // Constant radius for spatial messages.
-    env.newProperty<float>("spatial_radius", 10.0f);
 
     // B-Lymphocyte agent.
     flamegpu::AgentDescription bLymph = model.newAgent("B-Lymphocyte");
@@ -647,14 +632,6 @@ int main(int argc, char** argv) {
     //tcell_stimulate.newVariable<float>("y");
     tcell_stimulate.newVariable<flamegpu::id_t>("id");
 
-    // Generic agent position message for diffusion
-    flamegpu::MessageSpatial2D::Description position = model.newMessage<flamegpu::MessageSpatial2D>("position");
-    position.setMin(0.0f, 0.0f);
-    position.setMax(env.getProperty<float>("width"), env.getProperty<float>("height"));
-    position.setRadius(env.getProperty<float>("spatial_radius"));
-    //position.newVariable<float>("x");
-    //position.newVariable<float>("y");
-
     // Antigen agent functions
     antigen.newFunction("antigen_send_position", antigen_send_pos)
         .setMessageOutput("antigen_pos");
@@ -662,10 +639,9 @@ int main(int argc, char** argv) {
     recv_kill.setMessageInput("antigen_kill");
     // Allows agent death inside this function.
     recv_kill.setAllowAgentDeath(true);
-    antigen.newFunction("send_position", send_position)
-        .setMessageOutput("position");
-    antigen.newFunction("diffuse_entities", diffuse_entities)
-        .setMessageInput("position");
+    /*antigen.newFunction("send_position", send_position)
+        .setMessageOutput("position");*/
+    antigen.newFunction("diffuse_entities", diffuse_entities);
     
     // Antibody agent functions
     /* For input/output agent function is necessary to keep track 
@@ -675,10 +651,9 @@ int main(int argc, char** argv) {
     auto a_i = antibody.newFunction("antibody_interaction", antibody_interaction);
     a_i.setMessageInput("antigen_pos");
     a_i.setMessageOutput("antigen_kill");
-    antibody.newFunction("send_position", send_position)
-        .setMessageOutput("position");
-    antibody.newFunction("diffuse_entities", diffuse_entities)
-        .setMessageInput("position");
+    /*antibody.newFunction("send_position", send_position)
+        .setMessageOutput("position");*/
+    antibody.newFunction("diffuse_entities", diffuse_entities);
 
     // B-Lymphocyte agent functions
     auto bind = bLymph.newFunction("b_cell_binding", b_cell_binding);
@@ -689,21 +664,18 @@ int main(int argc, char** argv) {
     bLymph.newFunction("b_cell_receive_stimulus", b_cell_receive_stimulus)
         .setMessageInput("tcell_stimulate");
     auto spawn = bLymph.newFunction("spawn_antibodies", spawn_antibodies);
-    spawn.setMessageInput("position");
     spawn.setAgentOutput("Antibody");
-    bLymph.newFunction("send_position", send_position)
-        .setMessageOutput("position");
-    bLymph.newFunction("diffuse_entities", diffuse_entities)
-        .setMessageInput("position");
+    /*bLymph.newFunction("send_position", send_position)
+        .setMessageOutput("position");*/
+    bLymph.newFunction("diffuse_entities", diffuse_entities);
 
     // T-Lymphocyte agent functions
     auto stim = tLymph.newFunction("t_cell_send_stimulus", t_cell_send_stimulus);
     stim.setMessageInput("bcell_pos");
     stim.setMessageOutput("tcell_stimulate");
-    tLymph.newFunction("send_position", send_position)
-        .setMessageOutput("position");
-    tLymph.newFunction("diffuse_entities", diffuse_entities)
-        .setMessageInput("position");
+    /*tLymph.newFunction("send_position", send_position)
+        .setMessageOutput("position");*/
+    tLymph.newFunction("diffuse_entities", diffuse_entities);
 
     // Layer creation
     // 1st Layer
@@ -742,13 +714,7 @@ int main(int argc, char** argv) {
     flamegpu::LayerDescription layer9 = model.newLayer("Layer 9");
     layer9.addAgentFunction(bLymph.getFunction("b_cell_receive_stimulus"));
 
-    /* 10th Layer
-    flamegpu::LayerDescription layer10 = model.newLayer("Layer 10");
-    layer10.addAgentFunction(bLymph.getFunction("send_position"));
-    layer10.addAgentFunction(tLymph.getFunction("send_position"));
-    layer10.addAgentFunction(antibody.getFunction("send_position"));
-    layer10.addAgentFunction(antigen.getFunction("send_position"));
-    */
+    /*
     auto layer10_b = model.newLayer("Layer 10 B-Lymphocyte");
     layer10_b.addAgentFunction(bLymph.getFunction("send_position"));
 
@@ -760,19 +726,13 @@ int main(int argc, char** argv) {
 
     auto layer10_ag = model.newLayer("Layer 10 Antigen");
     layer10_ag.addAgentFunction(antigen.getFunction("send_position"));
-
+    */
 
     // 11th Layer
     flamegpu::LayerDescription layer11 = model.newLayer("Layer 11");
     layer11.addAgentFunction(bLymph.getFunction("spawn_antibodies"));
 
-    /* 12th Layer
-    flamegpu::LayerDescription layer12 = model.newLayer("Layer 12");
-    layer12.addAgentFunction(bLymph.getFunction("send_position"));
-    layer12.addAgentFunction(tLymph.getFunction("send_position"));
-    layer12.addAgentFunction(antibody.getFunction("send_position"));
-    layer12.addAgentFunction(antigen.getFunction("send_position"));
-    */
+    /*
     auto layer12_b = model.newLayer("Layer 12 B-Lymphocyte");
     layer12_b.addAgentFunction(bLymph.getFunction("send_position"));
 
@@ -784,6 +744,7 @@ int main(int argc, char** argv) {
 
     auto layer12_ag = model.newLayer("Layer 12 Antigen");
     layer12_ag.addAgentFunction(antigen.getFunction("send_position"));
+    */
 
     // 13th Layer
     flamegpu::LayerDescription layer13 = model.newLayer("Layer 13");
@@ -794,13 +755,17 @@ int main(int argc, char** argv) {
 
     // 14th Layer
     flamegpu::LayerDescription layer14 = model.newLayer("Layer 14");
-    layer14.addHostFunction(plot_agents);
+    layer14.addHostFunction(reinsert_antigens);
+
+    // 15th Layer
+    flamegpu::LayerDescription layer15 = model.newLayer("Layer 15");
+    layer15.addHostFunction(plot_agents);
 
     // Initialization function
     model.addInitFunction(init_agents);
 
     flamegpu::CUDASimulation sim(model);
-    sim.SimulationConfig().steps = steps;
+    sim.SimulationConfig().steps = params.steps;
     sim.simulate();
     return 0;
 }

@@ -27,36 +27,8 @@
 #include "math.cuh"
 #include "memory.cuh"
 
-__host__ __device__ bool randbool() {
-#ifdef __CUDA_ARCH__
-    // On GPU
-    curandState state;
-    curand_init(clock64(), threadIdx.x + blockIdx.x * blockDim.x, 0, &state);
-    return curand(&state) % 2;
-#else
-    // On CPU
-    return rand() % 2;
-#endif
-}
-
-__host__ __device__ double randdouble() {
-#ifdef __CUDA_ARCH__
-    curandState state;
-    curand_init(clock64(), threadIdx.x + blockIdx.x * blockDim.x, 0, &state);
-    return curand_uniform_double(&state);
-#else
-    return (double)rand() / (double)RAND_MAX;
-#endif
-}
-
-__host__ __device__ unsigned char randbyte() {
-#ifdef __CUDA_ARCH__
-    curandState state;
-    curand_init(clock64(), threadIdx.x + blockIdx.x * blockDim.x, 0, &state);
-    return (unsigned char)(curand(&state) & 0xFF);
-#else
+__host__ unsigned char randbyte() {
     return rand() % (UCHAR_MAX + 1);
-#endif
 }
 
 __device__ double langevin(double velocity, double force, double mass) {

@@ -24,7 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
-// #include "math.h"
+#include "flamegpu/flamegpu.h"
 
 #define POISSON_MUTATION
 
@@ -33,7 +33,7 @@
 #define AFFINITY_MIN 5
 #define BIND_CHANCE 0.5
 #define AB_CREATED_PER_CELL 4
-#define PROXIMITY_DIST 5
+#define PROXIMITY_DIST 5.0
 
 /* The type of an entity. */
 typedef enum 
@@ -67,13 +67,7 @@ CellState;
 
 /* Determines whether two different entities can bind
    based on the affinity potential of their receptors. */
-__device__ bool can_entities_bind(const unsigned char* receptor1, const unsigned char* receptor2);
+__device__ bool can_entities_bind(const unsigned char* receptor1, const unsigned char* receptor2, const flamegpu::AgentRandom &rand);
 
 /* Mutates the receptor of an entity. */
-__host__ __device__ void hypermutation(unsigned char* receptor);
-
-/* Creates a new entity with the type and position specified as parameters. MAYBE TO BE DELETED */
-__device__ void create_entity(EntityType type, double x, double y);
-
-/* Returns a string representing the entity type specified. */
-__device__ char* type_to_string(EntityType type);
+__device__ void hypermutation(unsigned char* receptor, const flamegpu::AgentRandom &rand);

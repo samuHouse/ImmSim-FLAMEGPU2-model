@@ -36,32 +36,25 @@ __device__ double affinity_potential(unsigned char receptor1, unsigned char rece
     return std::pow(BIND_CHANCE, (double)(dist - CHAR_BIT) / (double)(AFFINITY_MIN - CHAR_BIT));
 }
 
-__device__ bool can_entities_bind(const unsigned char* receptor1, const unsigned char* receptor2) {
+__device__ bool can_entities_bind(const unsigned char* receptor1, const unsigned char* receptor2, const flamegpu::AgentRandom &rand) {
     for (int i = 0; i < RECEPTOR_SIZE; i++) {
         /* Only one pair of receptors needs to bind. */
-        if (randdouble() < affinity_potential(receptor1[i], receptor2[i]))
+        if (rand.uniform<double>() < affinity_potential(receptor1[i], receptor2[i]))
             return true;
     }
     return false;
 }
 
-__host__ __device__ void hypermutation(unsigned char* receptor) {
+__device__ void hypermutation(unsigned char* receptor, const flamegpu::AgentRandom &rand) {
     #ifdef POISSON_MUTATION
         // Poisson distribution
-    #ifdef __CUDA_ARCH__
-        curandState state;
-        curand_init(clock64(), threadIdx.x + blockIdx.x * blockDim.x, 0, &state);
-    #endif
         /* Choose how many and which bits are going to get changed
            and store the indexes in an array. */
-        int num_bits = rand() % (CHAR_BIT * RECEPTOR_SIZE); // extract bits to change
+        //int num_bits = rand % (CHAR_BIT * RECEPTOR_SIZE); extract bits to change
+	int num_bits = rand.uniform<int>(0, (CHAR_BIT * RECEPTOR_SIZE));
         int *positions = (int*)malloc(num_bits * sizeof(int));
         for (int i = 0; i < num_bits; i++) {
-    #ifdef __CUDA_ARCH__
-	    positions[i] = curand(&state) % (CHAR_BIT * RECEPTOR_SIZE);
-    #else
-            positions[i] = rand() % (CHAR_BIT * RECEPTOR_SIZE); // extract index to change
-    #endif
+	    positions[i] =  rand.uniform<int>(0, (CHAR_BIT * RECEPTOR_SIZE));
         }
 
         /* Invert the value of every bit in the position of each index contained in the array. */
@@ -83,7 +76,7 @@ __host__ __device__ void hypermutation(unsigned char* receptor) {
         // Binomial distribution
         for (int i = 0; i < RECEPTOR_SIZE; i++) {
             for (int j = 0; j < BITS_IN_A_BYTE; j++) {
-                double random = randdouble();
+                double random = rand.uniform<double>();
                 if (random < MUTATION_CHANCE) {
                     bool set = !getbit(entity->receptor[i], j);
                     setbit(&entity->receptor[i], set, j);

@@ -25,14 +25,8 @@
 #define TIME_FACTOR 0.8
 #define PI 3.14159265358
 
-/* Generates either true or false randomly. */
-__host__ __device__ bool randbool();
-
-/* Generates a random floating point value between 0 and 1. */
-__host__ __device__ double randdouble();
-
 /* Generates a byte of random bits. */
-__host__ __device__ unsigned char randbyte();
+__host__ unsigned char randbyte();
 
 /* Computes the Langevin equation with the given parameters. */
 __host__ __device__ double langevin(double velocity, double force, double mass);

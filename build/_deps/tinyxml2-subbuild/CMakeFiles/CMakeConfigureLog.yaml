@@ -1,0 +1,11 @@
+
+---
+events:
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/home/local/STUDENTI/samuele.casadei3/cmake-3.30.4-linux-x86_64/share/cmake-3.30/Modules/CMakeDetermineSystem.cmake:205 (message)"
+      - "CMakeLists.txt:16 (project)"
+    message: |
+      The system is: Linux - 5.4.0-216-generic - x86_64
+...
