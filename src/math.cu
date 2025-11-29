@@ -1,8 +1,8 @@
 /****************************************************************************
+*    
+*    HIS Simulator in C/Cuda C++
 *
-*    HIS Simulator in FLAME GPU
-*
-*    Copyright (C) 2025  Samuele Casadei
+*    Copyright (C) 2025  Daniel Pellanda
 *
 *    This program is free software: you can redistribute it and/or modify
 *    it under the terms of the GNU General Public License as published by
@@ -17,13 +17,12 @@
 *    You should have received a copy of the GNU General Public License
 *    along with this program.  If not, see <https://www.gnu.org/licenses/>
 *
+*    Forked and modified by Samuele Casadei, 2025.
+*
 ****************************************************************************/
+
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdbool.h>
-#include <time.h>
-#include <limits.h>
-#include <curand_kernel.h>
 #include "math.cuh"
 #include "memory.cuh"
 

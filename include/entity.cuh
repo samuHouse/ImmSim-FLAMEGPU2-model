@@ -17,8 +17,11 @@
 *    You should have received a copy of the GNU General Public License
 *    along with this program.  If not, see <https://www.gnu.org/licenses/>
 *
+*    Forked and modified by Samuele Casadei, 2025.
+*
 ****************************************************************************/
 
+// In order to avoid multiple inclusions.
 #pragma once
 
 #include <stdio.h>
@@ -35,7 +38,9 @@
 #define AB_CREATED_PER_CELL 4
 #define PROXIMITY_DIST 5.0
 
-/* The type of an entity. */
+/**
+ * The type of an entity.
+ */
 typedef enum 
 {
     NONE = -1,   // Empty cell in the grid
@@ -52,9 +57,11 @@ typedef enum
 }
 EntityType;
 
-/* Defines the current state of the entity. 
-   Only used for cell type entities (B_CELL and T_CELL), 
-   molecules are always in the active state. */
+/**
+ * Defines the current state of the entity. 
+ * Only used for cell type entities (B_CELL and T_CELL), 
+ * molecules are always in the active state.
+ */
 typedef enum
 {
     CS_ACTIVE,
@@ -65,9 +72,13 @@ typedef enum
 }
 CellState;
 
-/* Determines whether two different entities can bind
-   based on the affinity potential of their receptors. */
+/**
+ * Determines whether two different entities can bind
+ * based on the affinity potential of their receptors.
+ */
 __device__ bool can_entities_bind(const unsigned char* receptor1, const unsigned char* receptor2, const flamegpu::AgentRandom &rand);
 
-/* Mutates the receptor of an entity. */
+/**
+ * Mutates the receptor of an entity.
+ */
 __device__ void hypermutation(unsigned char* receptor, const flamegpu::AgentRandom &rand);

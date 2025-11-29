@@ -1,15 +1,51 @@
+/****************************************************************************
+*
+*    ImmSim FLAMEGPU2 model
+*
+*    Copyright (C) 2025  Samuele Casadei
+*
+*    This program is free software: you can redistribute it and/or modify
+*    it under the terms of the GNU General Public License as published by
+*    the Free Software Foundation, either version 3 of the License, or
+*    (at your option) any later version.
+*
+*    This program is distributed in the hope that it will be useful,
+*    but WITHOUT ANY WARRANTY; without even the implied warranty of
+*    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+*    GNU General Public License for more details.
+*
+*    You should have received a copy of the GNU General Public License
+*    along with this program.  If not, see <https://www.gnu.org/licenses/>
+*
+****************************************************************************/
+
 #include <string>
 #include <random>
-// Not needed python libraries in matplotlib.
-#define WITHOUT_NUMPY
-#define WITHOUT_OPENCV
-#include "matplotlibcpp.h"
+#include <chrono>
 #include "math.cuh"
 #include "entity.cuh"
 #include "simulation.cuh"
 #include "flamegpu/flamegpu.h"
+
+#ifdef __PLOT__
+
+// Not needed python libraries in matplotlib.
+#define WITHOUT_NUMPY
+#define WITHOUT_OPENCV
+#include "matplotlibcpp.h"
 // necessary in order to use plot functions.
 namespace plt = matplotlibcpp;
+
+#endif
+
+/************************************ AGENT FUNCTION DEFINITION *************************************
+ *
+ *	Agent functions run on the GPU, every agent runs it in an isolated context, each agent
+ *	can only access its local data. In order to exchange information with other agents,
+ *	each agent can make use of input/output messages defined in the signature of each function.
+ *	Agent functions are executed for each agent ( they're added to) at each timestep of the
+ *	simulation.
+ */
 
 FLAMEGPU_AGENT_FUNCTION(antigen_send_pos, flamegpu::MessageNone, flamegpu::MessageSpatial2D) {
     // Get the agent's position
@@ -67,14 +103,14 @@ FLAMEGPU_AGENT_FUNCTION(antigen_receive_kill, flamegpu::MessageSpatial2D, flameg
 	const float x = FLAMEGPU->getVariable<float>("x");
 	const float y = FLAMEGPU->getVariable<float>("y");
     for (auto msg : FLAMEGPU->message_in(x, y)) {
-        // if message is in range and not out of bounds
+        // If message is in range and not out of bounds
         const float x2 = msg.getVariable<float>("x");
         const float y2 = msg.getVariable<float>("y");
         if ( 0 <= x2 && x2 < FLAMEGPU->environment.getProperty<float>("width") &&
             0 <= y2 && y2 < FLAMEGPU->environment.getProperty<float>("height")
         )
         {
-            // check if antigen is in range for interaction.
+            // Check if antigen is in range for interaction.
             float x21 = x2 - x;
             float y21 = y2 - y;
             const float separation = sqrt( x21*x21 + y21*y21 );
@@ -97,14 +133,14 @@ FLAMEGPU_AGENT_FUNCTION(b_cell_binding, flamegpu::MessageSpatial2D, flamegpu::Me
 	const float y = FLAMEGPU->getVariable<float>("y");
 	const flamegpu::AgentRandom &rng = FLAMEGPU->random;
         for (auto entity : FLAMEGPU->message_in(x, y)) {
-            // if message is in range and not out of bounds
+            // If message is in range and not out of bounds
             const float x2 = entity.getVariable<float>("x");
             const float y2 = entity.getVariable<float>("y");
             if ( 0 <= x2 && x2 < FLAMEGPU->environment.getProperty<float>("width") &&
                 0 <= y2 && y2 < FLAMEGPU->environment.getProperty<float>("height")
             )
             {
-                // check if antigen is in range for interaction.
+                // Check if antigen is in range for interaction.
                 float x21 = x2 - x;
                 float y21 = y2 - y;
                 const float separation = sqrt( x21*x21 + y21*y21 );
@@ -156,14 +192,14 @@ FLAMEGPU_AGENT_FUNCTION(t_cell_send_stimulus, flamegpu::MessageSpatial2D, flameg
         const float x = FLAMEGPU->getVariable<float>("x");
         const float y = FLAMEGPU->getVariable<float>("y");
         for (auto& b_cell : FLAMEGPU->message_in(x, y)) {
-            // if message is in range and not out of bounds
+            // If message is in range and not out of bounds
             const float x2 = b_cell.getVariable<float>("x");
             const float y2 = b_cell.getVariable<float>("y");
             if ( 0 <= x2 && x2 < FLAMEGPU->environment.getProperty<float>("width") &&
                 0 <= y2 && y2 < FLAMEGPU->environment.getProperty<float>("height")
             )
             {
-                // check if antigen is in range for interaction.
+                // Check if antigen is in range for interaction.
                 float x21 = x2 - x;
                 float y21 = y2 - y;
                 const float separation = sqrt( x21*x21 + y21*y21 );
@@ -178,7 +214,7 @@ FLAMEGPU_AGENT_FUNCTION(t_cell_send_stimulus, flamegpu::MessageSpatial2D, flameg
                         FLAMEGPU->message_out.setVariable<float>("x", x);
                         FLAMEGPU->message_out.setVariable<float>("y", y);
                         FLAMEGPU->message_out.setVariable<unsigned int>("id", id);
-                        // update interaction flag
+                        // Update interaction flag
                         FLAMEGPU->setVariable<uint8_t>("has_interacted", true);
                         break;
                     }
@@ -197,14 +233,14 @@ FLAMEGPU_AGENT_FUNCTION(b_cell_receive_stimulus, flamegpu::MessageSpatial2D, fla
         const float x = FLAMEGPU->getVariable<float>("x");
         const float y = FLAMEGPU->getVariable<float>("y");
         for (auto stimulus : FLAMEGPU->message_in(x, y)) {
-            // if message is in range and not out of bounds
+            // If message is in range and not out of bounds
             const float x2 = stimulus.getVariable<float>("x");
             const float y2 = stimulus.getVariable<float>("y");
             if ( 0 <= x2 && x2 < FLAMEGPU->environment.getProperty<float>("width") &&
                 0 <= y2 && y2 < FLAMEGPU->environment.getProperty<float>("height")
             )
             {
-                // check if antigen is in range for interaction.
+                // Check if antigen is in range for interaction.
                 float x21 = x2 - x;
                 float y21 = y2 - y;
                 const float separation = sqrt( x21*x21 + y21*y21 );
@@ -218,14 +254,6 @@ FLAMEGPU_AGENT_FUNCTION(b_cell_receive_stimulus, flamegpu::MessageSpatial2D, fla
             }
         }
     }
-    return flamegpu::ALIVE;
-}
-
-FLAMEGPU_AGENT_FUNCTION(send_position, flamegpu::MessageNone, flamegpu::MessageSpatial2D) {
-    const float x = FLAMEGPU->getVariable<float>("x");
-    const float y = FLAMEGPU->getVariable<float>("y");
-    FLAMEGPU->message_out.setVariable<float>("x", x);
-    FLAMEGPU->message_out.setVariable<float>("y", y);
     return flamegpu::ALIVE;
 }
 
@@ -265,11 +293,11 @@ FLAMEGPU_AGENT_FUNCTION(spawn_antibodies, flamegpu::MessageNone, flamegpu::Messa
 }
 
 FLAMEGPU_AGENT_FUNCTION(diffuse_entities, flamegpu::MessageNone, flamegpu::MessageNone) {
-    // --- Environment ---
+    // Load grid dimensions off environment.
     const float width  = FLAMEGPU->environment.getProperty<float>("width");
     const float height = FLAMEGPU->environment.getProperty<float>("height");
 
-    // --- Current agent state ---
+    // Fetch the current agent information needed for langevin.
     float x = FLAMEGPU->getVariable<float>("x");
     float y = FLAMEGPU->getVariable<float>("y");
     float vx = FLAMEGPU->getVariable<float>("vx");
@@ -277,10 +305,11 @@ FLAMEGPU_AGENT_FUNCTION(diffuse_entities, flamegpu::MessageNone, flamegpu::Messa
     const float mass = FLAMEGPU->getVariable<float>("mass");
     const float EPS = 1e-3f;
 
-    // --- Langevin drift using FLAMEGPU RNG ---
+    // Box-Muller
     double rx = FLAMEGPU->random.normal<double>(); // mean 0, std 1
     double ry = FLAMEGPU->random.normal<double>();
 
+    // Langevin
     vx += langevin(vx, rx, mass);
     vy += langevin(vy, ry, mass);
 
@@ -322,6 +351,13 @@ FLAMEGPU_AGENT_FUNCTION(diffuse_entities, flamegpu::MessageNone, flamegpu::Messa
     return flamegpu::ALIVE;
 }
 
+/************************************ INIT FUNCTION DEFINITION *************************************
+ *
+ *	Each simulation has an init function, used to populate the environment with agents,
+ *	this type of function runs only once, at the beginning of the simulation.
+ *	Runs on CPU (host).
+ */
+
 FLAMEGPU_INIT_FUNCTION(init_agents) {
     const unsigned int width = FLAMEGPU->environment.getProperty<float>("width");
     const unsigned int height = FLAMEGPU->environment.getProperty<float>("height");
@@ -330,11 +366,11 @@ FLAMEGPU_INIT_FUNCTION(init_agents) {
     const unsigned int antigen_num = FLAMEGPU->environment.getProperty<unsigned int>("antigen_num");
     const unsigned int total_agents = b_cell_num + t_cell_num + antigen_num;
 
-    // create rng to shuffle the types array..
+    // Create rng to shuffle the types array.
     std::random_device rd;
     std::mt19937 gen(rd());
 
-    // shuffle types array to populate the grid.
+    // Shuffle types array to populate the grid.
     std::vector<EntityType> types;
     types.reserve(total_agents);
 
@@ -363,11 +399,8 @@ FLAMEGPU_INIT_FUNCTION(init_agents) {
 
     for (unsigned int i = 0; i < rows && counter < total_agents; ++i) {
         for (unsigned int j = 0; j < cols && counter < total_agents; ++j) {
-            // ---------------------
-            // NUOVO POSIZIONAMENTO:
-            // coordinate reali su griglia 500x500 (o quelle del tuo ambiente)
-            // ---------------------
-            float x = j * cell_width  + offset(gen) * cell_width;
+	    // Spread agents equally with a random offset.
+	    float x = j * cell_width  + offset(gen) * cell_width;
             float y = i * cell_height + offset(gen) * cell_height;
 
 	    EntityType type = types[counter++];
@@ -381,10 +414,6 @@ FLAMEGPU_INIT_FUNCTION(init_agents) {
                     instance.setVariable<uint8_t>("has_interacted", false);
                     for (unsigned int k = 0; k < RECEPTOR_SIZE; ++k)
                         instance.setVariable<unsigned char, RECEPTOR_SIZE>("receptor", k, randbyte());
-
-                    // ---------------------------
-                    // NUOVE COORDINATE
-                    // ---------------------------
                     instance.setVariable<float>("x", x);
                     instance.setVariable<float>("y", y);
                     instance.setVariable<float>("vx", 0.0f);
@@ -399,7 +428,6 @@ FLAMEGPU_INIT_FUNCTION(init_agents) {
                     instance.setVariable<int>("type", T_CELL);
                     instance.setVariable<float>("mass", 0.2f);
                     instance.setVariable<uint8_t>("has_interacted", false);
-
                     instance.setVariable<float>("x", x);
                     instance.setVariable<float>("y", y);
                     instance.setVariable<float>("vx", 0.0f);
@@ -415,7 +443,6 @@ FLAMEGPU_INIT_FUNCTION(init_agents) {
                     instance.setVariable<float>("mass", 0.1f);
                     for (unsigned int k = 0; k < RECEPTOR_SIZE; ++k)
                         instance.setVariable<unsigned char, RECEPTOR_SIZE>("epitope", k, randbyte());
-
                     instance.setVariable<float>("x", x);
                     instance.setVariable<float>("y", y);
                     instance.setVariable<float>("vx", 0.0f);
@@ -428,6 +455,16 @@ FLAMEGPU_INIT_FUNCTION(init_agents) {
         }
     }
 }
+
+/************************************ HOST FUNCTION DEFINITION *************************************
+ *
+ *	Host functions are designed to retrieve/edit the simulation data.
+ *	This type of function is slower compared to agent functions, and,
+ *	usually, isn't supposed to run at every timestep.
+ *	Runs on CPU (host).
+ */
+
+#ifdef __PLOT__
 
 FLAMEGPU_HOST_FUNCTION(plot_agents) {
     const unsigned int step = FLAMEGPU->getStepCounter();
@@ -479,7 +516,10 @@ FLAMEGPU_HOST_FUNCTION(plot_agents) {
     }
 }
 
+#endif
+
 FLAMEGPU_HOST_FUNCTION(reinsert_antigens) {
+
     unsigned int total_steps = FLAMEGPU->environment.getProperty<unsigned int>("total_steps"),
     step = FLAMEGPU->getStepCounter();
     if (step == (total_steps / 2)) {
@@ -537,7 +577,10 @@ int main(int argc, char** argv) {
     // Model creation
     flamegpu::ModelDescription model("ImmSimModel");
 
-    // Environment.
+    /* Initialization of the simulation environment through parameters.
+     * The enviroment contains global data, accessible by every agent during
+     * the simulation.
+     */
     flamegpu::EnvironmentDescription env = model.Environment();
     // Step number.
     env.newProperty<unsigned int>("total_steps", params.steps);
@@ -550,6 +593,12 @@ int main(int argc, char** argv) {
     env.newProperty<unsigned int>("antigen_num", params.antigen_num);
     env.newProperty<float>("interaction_radius", PROXIMITY_DIST);
 
+/************************************ AGENT DEFINITION *************************************
+ *
+ *	Agents are the minimum unit of work inside the FLAMEGPU framewok, each one
+ * 	has its own variables.
+ */
+
     // B-Lymphocyte agent.
     flamegpu::AgentDescription bLymph = model.newAgent("B-Lymphocyte");
     bLymph.newVariable<float>("x");
@@ -561,6 +610,7 @@ int main(int argc, char** argv) {
     bLymph.newVariable<float>("mass", 0.2f);
     bLymph.newVariable<uint8_t>("has_interacted", false);
     bLymph.newVariable<unsigned char, RECEPTOR_SIZE>("receptor");
+
     // T-Lymphocyte agent.
     flamegpu::AgentDescription tLymph = model.newAgent("T-Lymphocyte");
     tLymph.newVariable<float>("x");
@@ -571,6 +621,7 @@ int main(int argc, char** argv) {
     tLymph.newVariable<int>("type", T_CELL);
     tLymph.newVariable<float>("mass", 0.2f);
     tLymph.newVariable<uint8_t>("has_interacted", false);
+
     // Antigen agent.
     flamegpu::AgentDescription antigen = model.newAgent("Antigen");
     antigen.newVariable<float>("x");
@@ -581,6 +632,7 @@ int main(int argc, char** argv) {
     antigen.newVariable<int>("type", AG_MOLECOLE);
     antigen.newVariable<float>("mass", 0.1f);
     antigen.newVariable<unsigned char, RECEPTOR_SIZE>("epitope");
+
     // Antibody agent.
     flamegpu::AgentDescription antibody = model.newAgent("Antibody");
     antibody.newVariable<float>("x");
@@ -591,15 +643,19 @@ int main(int argc, char** argv) {
     antibody.newVariable<int>("type", AB_MOLECOLE);
     antibody.newVariable<uint8_t>("has_interacted", false);
     antibody.newVariable<float>("mass", 0.1f);
-    // antibody.newState("default");
+
+/************************************ MESSAGE DEFINITION *************************************
+ *
+ *	Messages are the medium to exchange information between agents, there are
+ *	more types of message other the "Spatial2D", but this one in particular
+ *	is highly suitable for this type of simulation.
+ */
 
     // Antigen position message
     flamegpu::MessageSpatial2D::Description antigen_pos = model.newMessage<flamegpu::MessageSpatial2D>("antigen_pos");
     antigen_pos.setMin(0.0f, 0.0f);
     antigen_pos.setMax(env.getProperty<float>("width"), env.getProperty<float>("height"));
     antigen_pos.setRadius(env.getProperty<float>("interaction_radius"));
-    //antigen_pos.newVariable<float>("x");
-    //antigen_pos.newVariable<float>("y");
     antigen_pos.newVariable<flamegpu::id_t>("id");
     antigen_pos.newVariable<unsigned char, RECEPTOR_SIZE>("receptor");
 
@@ -608,8 +664,6 @@ int main(int argc, char** argv) {
     antigen_kill.setMin(0.0f, 0.0f);
     antigen_kill.setMax(env.getProperty<float>("width"), env.getProperty<float>("height"));
     antigen_kill.setRadius(env.getProperty<float>("interaction_radius"));
-    //antigen_kill.newVariable<float>("x");
-    //antigen_kill.newVariable<float>("y");
     antigen_kill.newVariable<flamegpu::id_t>("id");
 
     // B-Lymphocyte position message
@@ -617,8 +671,6 @@ int main(int argc, char** argv) {
     bcell_pos.setMin(0.0f, 0.0f);
     bcell_pos.setMax(env.getProperty<float>("width"), env.getProperty<float>("height"));
     bcell_pos.setRadius(env.getProperty<float>("interaction_radius"));
-    //bcell_pos.newVariable<float>("x");
-    //bcell_pos.newVariable<float>("y");
     bcell_pos.newVariable<flamegpu::id_t>("id");
     bcell_pos.newVariable<int>("cell_state");
     bcell_pos.newVariable<uint8_t>("has_interacted");
@@ -628,9 +680,9 @@ int main(int argc, char** argv) {
     tcell_stimulate.setMin(0.0f, 0.0f);
     tcell_stimulate.setMax(env.getProperty<float>("width"), env.getProperty<float>("height"));
     tcell_stimulate.setRadius(env.getProperty<float>("interaction_radius"));
-    //tcell_stimulate.newVariable<float>("x");
-    //tcell_stimulate.newVariable<float>("y");
     tcell_stimulate.newVariable<flamegpu::id_t>("id");
+
+/********************************* BINDING AGENT FUNCTION TO AGENTS **********************************/
 
     // Antigen agent functions
     antigen.newFunction("antigen_send_position", antigen_send_pos)
@@ -639,8 +691,6 @@ int main(int argc, char** argv) {
     recv_kill.setMessageInput("antigen_kill");
     // Allows agent death inside this function.
     recv_kill.setAllowAgentDeath(true);
-    /*antigen.newFunction("send_position", send_position)
-        .setMessageOutput("position");*/
     antigen.newFunction("diffuse_entities", diffuse_entities);
     
     // Antibody agent functions
@@ -651,8 +701,6 @@ int main(int argc, char** argv) {
     auto a_i = antibody.newFunction("antibody_interaction", antibody_interaction);
     a_i.setMessageInput("antigen_pos");
     a_i.setMessageOutput("antigen_kill");
-    /*antibody.newFunction("send_position", send_position)
-        .setMessageOutput("position");*/
     antibody.newFunction("diffuse_entities", diffuse_entities);
 
     // B-Lymphocyte agent functions
@@ -665,17 +713,20 @@ int main(int argc, char** argv) {
         .setMessageInput("tcell_stimulate");
     auto spawn = bLymph.newFunction("spawn_antibodies", spawn_antibodies);
     spawn.setAgentOutput("Antibody");
-    /*bLymph.newFunction("send_position", send_position)
-        .setMessageOutput("position");*/
     bLymph.newFunction("diffuse_entities", diffuse_entities);
 
     // T-Lymphocyte agent functions
     auto stim = tLymph.newFunction("t_cell_send_stimulus", t_cell_send_stimulus);
     stim.setMessageInput("bcell_pos");
     stim.setMessageOutput("tcell_stimulate");
-    /*tLymph.newFunction("send_position", send_position)
-        .setMessageOutput("position");*/
     tLymph.newFunction("diffuse_entities", diffuse_entities);
+
+/************************************ LAYER DEFINITION *************************************
+ *
+ *	Layers define the order execution order of agent functions throughout
+ *	the timestep, functions in the same layer execute in parallel.
+ *	Each layer can contain ether a host function or more agent functions.
+ */
 
     // Layer creation
     // 1st Layer
@@ -714,37 +765,9 @@ int main(int argc, char** argv) {
     flamegpu::LayerDescription layer9 = model.newLayer("Layer 9");
     layer9.addAgentFunction(bLymph.getFunction("b_cell_receive_stimulus"));
 
-    /*
-    auto layer10_b = model.newLayer("Layer 10 B-Lymphocyte");
-    layer10_b.addAgentFunction(bLymph.getFunction("send_position"));
-
-    auto layer10_t = model.newLayer("Layer 10 T-Lymphocyte");
-    layer10_t.addAgentFunction(tLymph.getFunction("send_position"));
-
-    auto layer10_a = model.newLayer("Layer 10 Antibody");
-    layer10_a.addAgentFunction(antibody.getFunction("send_position"));
-
-    auto layer10_ag = model.newLayer("Layer 10 Antigen");
-    layer10_ag.addAgentFunction(antigen.getFunction("send_position"));
-    */
-
     // 11th Layer
     flamegpu::LayerDescription layer11 = model.newLayer("Layer 11");
     layer11.addAgentFunction(bLymph.getFunction("spawn_antibodies"));
-
-    /*
-    auto layer12_b = model.newLayer("Layer 12 B-Lymphocyte");
-    layer12_b.addAgentFunction(bLymph.getFunction("send_position"));
-
-    auto layer12_t = model.newLayer("Layer 12 T-Lymphocyte");
-    layer12_t.addAgentFunction(tLymph.getFunction("send_position"));
-
-    auto layer12_a = model.newLayer("Layer 12 Antibody");
-    layer12_a.addAgentFunction(antibody.getFunction("send_position"));
-
-    auto layer12_ag = model.newLayer("Layer 12 Antigen");
-    layer12_ag.addAgentFunction(antigen.getFunction("send_position"));
-    */
 
     // 13th Layer
     flamegpu::LayerDescription layer13 = model.newLayer("Layer 13");
@@ -757,15 +780,27 @@ int main(int argc, char** argv) {
     flamegpu::LayerDescription layer14 = model.newLayer("Layer 14");
     layer14.addHostFunction(reinsert_antigens);
 
+#ifdef __PLOT__
+
     // 15th Layer
     flamegpu::LayerDescription layer15 = model.newLayer("Layer 15");
     layer15.addHostFunction(plot_agents);
 
-    // Initialization function
+#endif
+
+    // Set the initialization function defined above.
     model.addInitFunction(init_agents);
 
+    // Set the number of steps.
     flamegpu::CUDASimulation sim(model);
     sim.SimulationConfig().steps = params.steps;
+
+    // Compute execution time.
+    auto start = std::chrono::high_resolution_clock::now();
     sim.simulate();
+    auto end = std::chrono::high_resolution_clock::now();
+
+    std::chrono::duration<double> diff = end - start;
+    printf("Simulation time: %f s\n", diff.count());
     return 0;
 }

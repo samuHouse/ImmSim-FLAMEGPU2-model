@@ -1,8 +1,8 @@
 /****************************************************************************
 *    
-*    HIS Simulator in FLAME GPU
+*    HIS Simulator in C/Cuda C++
 *
-*    Copyright (C) 2025 Samuele Casadei
+*    Copyright (C) 2025  Daniel Pellanda
 *
 *    This program is free software: you can redistribute it and/or modify
 *    it under the terms of the GNU General Public License as published by
@@ -17,19 +17,28 @@
 *    You should have received a copy of the GNU General Public License
 *    along with this program.  If not, see <https://www.gnu.org/licenses/>
 *
+*    Forked and modified by Samuele Casadei, 2025.
+*
 ****************************************************************************/
 
+// In order to avoid multiple inclusions.
 #pragma once
 
 #define LAMBDA 0.1
 #define TIME_FACTOR 0.8
 #define PI 3.14159265358
 
-/* Generates a byte of random bits. */
+/**
+ * Generates a byte of random bits.
+ */
 __host__ unsigned char randbyte();
 
-/* Computes the Langevin equation with the given parameters. */
+/**
+ * Computes the Langevin equation with the given parameters.
+ */
 __host__ __device__ double langevin(double velocity, double force, double mass);
 
-/* Computes the Hamming distance (the number of different bits) of the bytes passed as parameters. */
+/**
+ * Computes the Hamming distance (the number of different bits) of the bytes passed as parameters.
+ */
 __host__ __device__ int hammingdist(unsigned char byte1, unsigned char byte2);
