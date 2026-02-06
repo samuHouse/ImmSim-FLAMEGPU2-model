@@ -59,6 +59,8 @@ CMake instructions to build and run (from root dir):
 ## Execute
 `./build/bin/Release/ImmSim`
 
+## Check results
+Any graph plotted can be found in the `/plot` directory, located in the root folder.
 
 ## License
 
