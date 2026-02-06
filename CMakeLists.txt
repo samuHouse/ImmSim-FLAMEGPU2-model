@@ -4,6 +4,17 @@ cmake_minimum_required(VERSION 3.18...3.25 FATAL_ERROR)
 # Name the project and set languages, this must be done after flamegpu_init_cuda_architectures
 project(ImmSim CUDA CXX)
 
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+# include "-DPLOT" to the cmake command to enable matplotlib plots.
+option(PLOT "Enable plot mode" OFF)
+
+if(PLOT)
+    add_definitions(-D__PLOT__)
+endif()
+
 # Manually specify the FLAMEGPU_VISUALISATION option to provide it prior to original configuration and allow the default to be overridden in the downstream project
 option(FLAMEGPU_VISUALISATION "Enable FLAMEGPU visualisation support" OFF)
 

@@ -39,27 +39,22 @@
 #define PROXIMITY_DIST 5.0
 
 /**
- * The type of an entity.
+ * Defines types of entities
+ * defined by this simulation.
  */
-typedef enum 
+typedef enum
 {
-    NONE = -1,   // Empty cell in the grid
-
-    // Cells
-    B_CELL, // Lymphocyte B
-    T_CELL, // Lymphocyte T
-
-    // Molecules
-    AG_MOLECOLE, // Antigen
-    AB_MOLECOLE, // Antibody
-
-    MAX_ENTITYTYPE
+    AB_MOLECOLE,
+    AG_MOLECOLE,
+    B_CELL,
+    T_CELL 
 }
 EntityType;
 
+
 /**
  * Defines the current state of the entity. 
- * Only used for cell type entities (B_CELL and T_CELL), 
+ * Only used for B-cell type entities, 
  * molecules are always in the active state.
  */
 typedef enum
